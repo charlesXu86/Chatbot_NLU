@@ -1,34 +1,29 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import copy
 import datetime
 import logging
 import os
-
-from builtins import object
 from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Text
 
-import chatbot_nlu
-from chatbot_nlu import components, utils, config
-from chatbot_nlu.components import Component, ComponentBuilder
-from chatbot_nlu.config import RasaNLUModelConfig, override_defaults
+import rasa.nlu
+from rasa.constants import MINIMUM_COMPATIBLE_VERSION
+from chatbot_nlu import components, utils  # pytype: disable=pyi-error
+from chatbot_nlu.components import Component, ComponentBuilder  # pytype: disable=pyi-error
+from chatbot_nlu.config import RasaNLUModelConfig, component_config_from_pipeline
 from chatbot_nlu.persistor import Persistor
 from chatbot_nlu.training_data import TrainingData, Message
-from chatbot_nlu.utils import create_dir, write_json_to_file
+from chatbot_nlu.utils import write_json_to_file
+import rasa.utils.io
+
+MODEL_NAME_PREFIX = "nlu_"
 
 logger = logging.getLogger(__name__)
 
-MINIMUM_COMPATIBLE_VERSION = "0.13.0a2"
 
-
-class InvalidProjectError(Exception):
+class InvalidModelError(Exception):
     """Raised when a model failed to load.
 
     Attributes:
@@ -43,7 +38,7 @@ class InvalidProjectError(Exception):
 
 
 class UnsupportedModelError(Exception):
-    """Raised when a model is to old to be loaded.
+    """Raised when a model is too old to be loaded.
 
     Attributes:
         message -- explanation of why the model is invalid
@@ -60,26 +55,25 @@ class Metadata(object):
     """Captures all information about a model to load and prepare it."""
 
     @staticmethod
-    def load(model_dir):
-        # type: (Text) -> 'Metadata'
+    def load(model_dir: Text):
         """Loads the metadata from a models directory.
 
         Args:
-            model_dir (str): the directory where the model is saved.
+            model_dir: the directory where the model is saved.
         Returns:
             Metadata: A metadata object describing the model
         """
         try:
-            metadata_file = os.path.join(model_dir, 'metadata.json')
-            data = utils.read_json_file(metadata_file)
+            metadata_file = os.path.join(model_dir, "metadata.json")
+            data = rasa.utils.io.read_json_file(metadata_file)
             return Metadata(data, model_dir)
         except Exception as e:
-            abspath = os.path.abspath(os.path.join(model_dir, 'metadata.json'))
-            raise InvalidProjectError("Failed to load model metadata "
-                                      "from '{}'. {}".format(abspath, e))
+            abspath = os.path.abspath(os.path.join(model_dir, "metadata.json"))
+            raise InvalidModelError(
+                "Failed to load model metadata from '{}'. {}".format(abspath, e)
+            )
 
-    def __init__(self, metadata, model_dir):
-        # type: (Dict[Text, Any], Optional[Text]) -> None
+    def __init__(self, metadata: Dict[Text, Any], model_dir: Optional[Text]):
 
         self.metadata = metadata
         self.model_dir = model_dir
@@ -89,35 +83,37 @@ class Metadata(object):
 
     @property
     def component_classes(self):
-        if self.get('pipeline'):
-            return [c.get("class") for c in self.get('pipeline', [])]
+        if self.get("pipeline"):
+            return [c.get("class") for c in self.get("pipeline", [])]
         else:
             return []
 
-    def for_component(self, name, defaults=None):
-        return config.component_config_from_pipeline(name,
-                                                     self.get('pipeline', []),
-                                                     defaults)
+    @property
+    def number_of_components(self):
+        return len(self.get("pipeline", []))
+
+    def for_component(self, index, defaults=None):
+        return component_config_from_pipeline(index, self.get("pipeline", []), defaults)
 
     @property
-    def language(self):
-        # type: () -> Optional[Text]
+    def language(self) -> Optional[Text]:
         """Language of the underlying model"""
 
-        return self.get('language')
+        return self.get("language")
 
-    def persist(self, model_dir):
-        # type: (Text) -> None
+    def persist(self, model_dir: Text):
         """Persists the metadata of a model to a given directory."""
 
         metadata = self.metadata.copy()
 
-        metadata.update({
-            "trained_at": datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
-            "rasa_nlu_version": chatbot_nlu.__version__,
-        })
+        metadata.update(
+            {
+                "trained_at": datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
+                "rasa_version": rasa.__version__,
+            }
+        )
 
-        filename = os.path.join(model_dir, 'metadata.json')
+        filename = os.path.join(model_dir, "metadata.json")
         write_json_to_file(filename, metadata, indent=4)
 
 
@@ -130,12 +126,12 @@ class Trainer(object):
     # Officially supported languages (others might be used, but might fail)
     SUPPORTED_LANGUAGES = ["de", "en"]
 
-    def __init__(self,
-                 cfg,  # type: RasaNLUModelConfig
-                 component_builder=None,  # type: Optional[ComponentBuilder]
-                 skip_validation=False  # type: bool
-                 ):
-        # type: (...) -> None
+    def __init__(
+        self,
+        cfg: RasaNLUModelConfig,
+        component_builder: Optional[ComponentBuilder] = None,
+        skip_validation: bool = False,
+    ):
 
         self.config = cfg
         self.skip_validation = skip_validation
@@ -155,26 +151,28 @@ class Trainer(object):
         self.pipeline = self._build_pipeline(cfg, component_builder)
 
     @staticmethod
-    def _build_pipeline(cfg, component_builder):
-        # type: (RasaNLUModelConfig, ComponentBuilder) -> List
+    def _build_pipeline(
+        cfg: RasaNLUModelConfig, component_builder: ComponentBuilder
+    ) -> List[Component]:
         """Transform the passed names of the pipeline components into classes"""
         pipeline = []
 
         # Transform the passed names of the pipeline components into classes
-        for component_name in cfg.component_names:
-            component = component_builder.create_component(
-                    component_name, cfg)
+        for i in range(len(cfg.pipeline)):
+            component_cfg = cfg.for_component(i)
+            component = component_builder.create_component(component_cfg, cfg)
             pipeline.append(component)
 
         return pipeline
 
-    def train(self, data, **kwargs):
-        # type: (TrainingData) -> Interpreter
+    def train(self, data: TrainingData, **kwargs: Any) -> "Interpreter":
         """Trains the underlying pipeline using the provided training data."""
 
         self.training_data = data
 
-        context = kwargs  # type: Dict[Text, Any]
+        self.training_data.validate()
+
+        context = kwargs
 
         for component in self.pipeline:
             updates = component.provide_context()
@@ -184,65 +182,71 @@ class Trainer(object):
         # Before the training starts: check that all arguments are provided
         if not self.skip_validation:
             components.validate_arguments(self.pipeline, context)
+            components.validate_required_components_from_data(
+                self.pipeline, self.training_data
+            )
 
         # data gets modified internally during the training - hence the copy
         working_data = copy.deepcopy(data)
 
         for i, component in enumerate(self.pipeline):
-            logger.info("Starting to train component {}"
-                        "".format(component.name))
+            logger.info("Starting to train component {}".format(component.name))
             component.prepare_partial_processing(self.pipeline[:i], context)
-            updates = component.train(working_data, self.config,
-                                      **context)
+            updates = component.train(working_data, self.config, **context)
             logger.info("Finished training component.")
             if updates:
                 context.update(updates)
 
         return Interpreter(self.pipeline, context)
 
-    def persist(self, path, persistor=None, project_name=None,
-                fixed_model_name=None):
-        # type: (Text, Optional[Persistor], Text) -> Text
+    @staticmethod
+    def _file_name(index, name):
+        return "component_{}_{}".format(index, name)
+
+    def persist(
+        self,
+        path: Text,
+        persistor: Optional[Persistor] = None,
+        fixed_model_name: Text = None,
+        persist_nlu_training_data: bool = False,
+    ) -> Text:
         """Persist all components of the pipeline to the passed path.
 
         Returns the directory of the persisted model."""
 
-        timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        metadata = {
-            "language": self.config["language"],
-            "pipeline": [],
-        }
-
-        if project_name is None:
-            project_name = "default"
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        metadata = {"language": self.config["language"], "pipeline": []}
 
         if fixed_model_name:
             model_name = fixed_model_name
         else:
-            model_name = "model_" + timestamp
+            model_name = MODEL_NAME_PREFIX + timestamp
 
-        path = config.make_path_absolute(path)
-        dir_name = os.path.join(path, project_name, model_name)
+        path = os.path.abspath(path)
+        dir_name = os.path.join(path, model_name)
 
-        create_dir(dir_name)
+        rasa.utils.io.create_directory(dir_name)
 
-        if self.training_data:
+        if self.training_data and persist_nlu_training_data:
             metadata.update(self.training_data.persist(dir_name))
 
-        for component in self.pipeline:
-            update = component.persist(dir_name)
+        for i, component in enumerate(self.pipeline):
+            file_name = self._file_name(i, component.name)
+            update = component.persist(file_name, dir_name)
             component_meta = component.component_config
             if update:
                 component_meta.update(update)
             component_meta["class"] = utils.module_path_from_object(component)
+
             metadata["pipeline"].append(component_meta)
 
         Metadata(metadata, dir_name).persist(dir_name)
 
         if persistor is not None:
-            persistor.persist(dir_name, model_name, project_name)
-        logger.info("Successfully saved model into "
-                    "'{}'".format(os.path.abspath(dir_name)))
+            persistor.persist(dir_name, model_name)
+        logger.info(
+            "Successfully saved model into '{}'".format(os.path.abspath(dir_name))
+        )
         return dir_name
 
 
@@ -252,52 +256,60 @@ class Interpreter(object):
     # Defines all attributes (& default values)
     # that will be returned by `parse`
     @staticmethod
-    def default_output_attributes():
+    def default_output_attributes() -> Dict[Text, Any]:
         return {"intent": {"name": None, "confidence": 0.0}, "entities": []}
 
     @staticmethod
-    def ensure_model_compatibility(metadata, version_to_check=None):
+    def ensure_model_compatibility(
+        metadata: Metadata, version_to_check: Optional[Text] = None
+    ) -> None:
         from packaging import version
 
         if version_to_check is None:
             version_to_check = MINIMUM_COMPATIBLE_VERSION
 
-        model_version = metadata.get("rasa_nlu_version", "0.0.0")
+        model_version = metadata.get("rasa_version", "0.0.0")
         if version.parse(model_version) < version.parse(version_to_check):
             raise UnsupportedModelError(
-                "The model version is to old to be "
+                "The model version is too old to be "
                 "loaded by this Rasa NLU instance. "
-                "Either retrain the model, or run with"
+                "Either retrain the model, or run with "
                 "an older version. "
                 "Model version: {} Instance version: {}"
-                "".format(model_version, chatbot_nlu.__version__))
+                "".format(model_version, rasa.__version__)
+            )
 
     @staticmethod
-    def load(model_dir, component_builder=None, skip_validation=False):
+    def load(
+        model_dir: Text,
+        component_builder: Optional[ComponentBuilder] = None,
+        skip_validation: bool = False,
+    ) -> "Interpreter":
         """Create an interpreter based on a persisted model.
 
         Args:
-            model_dir (str): The path of the model to load
-            component_builder (ComponentBuilder): The
-                :class:`ComponentBuilder` to use.
+            skip_validation: If set to `True`, tries to check that all
+                required packages for the components are installed
+                before loading them.
+            model_dir: The path of the model to load
+            component_builder: The
+                :class:`rasa.nlu.components.ComponentBuilder` to use.
 
         Returns:
-            Interpreter: An interpreter that uses the loaded model.
+            An interpreter that uses the loaded model.
         """
 
         model_metadata = Metadata.load(model_dir)
 
         Interpreter.ensure_model_compatibility(model_metadata)
-        return Interpreter.create(model_metadata,
-                                  component_builder,
-                                  skip_validation)
+        return Interpreter.create(model_metadata, component_builder, skip_validation)
 
     @staticmethod
-    def create(model_metadata,  # type: Metadata
-               component_builder=None,  # type: Optional[ComponentBuilder]
-               skip_validation=False  # type: bool
-               ):
-        # type: (...) -> Interpreter
+    def create(
+        model_metadata: Metadata,
+        component_builder: Optional[ComponentBuilder] = None,
+        skip_validation: bool = False,
+    ) -> "Interpreter":
         """Load stored model and components defined by the provided metadata."""
 
         context = {}
@@ -314,30 +326,41 @@ class Interpreter(object):
         if not skip_validation:
             components.validate_requirements(model_metadata.component_classes)
 
-        for component_name in model_metadata.component_classes:
+        for i in range(model_metadata.number_of_components):
+            component_meta = model_metadata.for_component(i)
             component = component_builder.load_component(
-                    component_name, model_metadata.model_dir,
-                    model_metadata, **context)
+                component_meta, model_metadata.model_dir, model_metadata, **context
+            )
             try:
                 updates = component.provide_context()
                 if updates:
                     context.update(updates)
                 pipeline.append(component)
             except components.MissingArgumentError as e:
-                raise Exception("Failed to initialize component '{}'. "
-                                "{}".format(component.name, e))
+                raise Exception(
+                    "Failed to initialize component '{}'. "
+                    "{}".format(component.name, e)
+                )
 
         return Interpreter(pipeline, context, model_metadata)
 
-    def __init__(self, pipeline, context, model_metadata=None):
-        # type: (List[Component], Dict[Text, Any], Optional[Metadata]) -> None
+    def __init__(
+        self,
+        pipeline: List[Component],
+        context: Optional[Dict[Text, Any]],
+        model_metadata: Optional[Metadata] = None,
+    ) -> None:
 
         self.pipeline = pipeline
         self.context = context if context is not None else {}
         self.model_metadata = model_metadata
 
-    def parse(self, text, time=None, only_output_properties=True):
-        # type: (Text) -> Dict[Text, Any]
+    def parse(
+        self,
+        text: Text,
+        time: Optional[datetime.datetime] = None,
+        only_output_properties: bool = True,
+    ) -> Dict[Text, Any]:
         """Parse the input text, classify it and return pipeline result.
 
         The pipeline result usually contains intent and entities."""
@@ -357,6 +380,5 @@ class Interpreter(object):
             component.process(message, **self.context)
 
         output = self.default_output_attributes()
-        output.update(message.as_dict(
-                only_output_properties=only_output_properties))
+        output.update(message.as_dict(only_output_properties=only_output_properties))
         return output

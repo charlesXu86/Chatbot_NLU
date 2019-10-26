@@ -29,9 +29,9 @@ import numpy as np
 from builtins import str
 from typing import Any, Dict, List, Optional, Text, Tuple
 
-from rasa.nlu.extractors import EntityExtractor
-from rasa.nlu.model import Metadata
-from rasa.nlu.training_data import Message
+from chatbot_nlu.extractors import EntityExtractor
+from chatbot_nlu.model import Metadata
+from chatbot_nlu.training_data import Message
 
 from chatbot_nlu.utils.bilstm_utils import \
     char_mapping, tag_mapping, prepare_dataset, BatchManager, iob_iobes, \

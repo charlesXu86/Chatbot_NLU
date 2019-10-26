@@ -1,27 +1,12 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import copy
 import logging
 import os
+import ruamel.yaml as yaml
+from typing import Any, Dict, List, Optional, Text, Union
 
-import six
-import yaml
-from builtins import object
-# Describes where to search for the config file if no location is specified
-from typing import Text, Optional, Dict, Any, List
-
-from chatbot_nlu import utils
-
-DEFAULT_CONFIG_LOCATION = "config.yml"
-
-DEFAULT_CONFIG = {
-    "language": "en",
-    "pipeline": [],
-    "data": None,
-}
+import rasa.utils.io
+from rasa.constants import DEFAULT_CONFIG_PATH
+from chatbot_nlu.utils import json_to_string
 
 logger = logging.getLogger(__name__)
 
@@ -29,34 +14,40 @@ logger = logging.getLogger(__name__)
 class InvalidConfigError(ValueError):
     """Raised if an invalid configuration is encountered."""
 
-    def __init__(self, message):
-        # type: (Text) -> None
+    def __init__(self, message: Text) -> None:
         super(InvalidConfigError, self).__init__(message)
 
 
-def load(filename=None, **kwargs):
-    if filename is None and os.path.isfile(DEFAULT_CONFIG_LOCATION):
-        filename = DEFAULT_CONFIG_LOCATION
+def load(
+    config: Optional[Union[Text, Dict]] = None, **kwargs: Any
+) -> "RasaNLUModelConfig":
+    if isinstance(config, Dict):
+        return _load_from_dict(config, **kwargs)
 
-    if filename is not None:
+    file_config = {}
+    if config is None and os.path.isfile(DEFAULT_CONFIG_PATH):
+        config = DEFAULT_CONFIG_PATH
+
+    if config is not None:
         try:
-            file_config = utils.read_yaml_file(filename)
+            file_config = rasa.utils.io.read_config_file(config)
         except yaml.parser.ParserError as e:
-            raise InvalidConfigError("Failed to read configuration file "
-                                     "'{}'. Error: {}".format(filename, e))
+            raise InvalidConfigError(
+                "Failed to read configuration file '{}'. Error: {}".format(config, e)
+            )
 
-        if kwargs:
-            file_config.update(kwargs)
-        return RasaNLUModelConfig(file_config)
-    else:
-        return RasaNLUModelConfig(kwargs)
+    return _load_from_dict(file_config, **kwargs)
+
+
+def _load_from_dict(config: Dict, **kwargs: Any) -> "RasaNLUModelConfig":
+    if kwargs:
+        config.update(kwargs)
+    return RasaNLUModelConfig(config)
 
 
 def override_defaults(
-        defaults,  # type: Optional[Dict[Text, Any]]
-        custom  # type: Optional[Dict[Text, Any]]
-):
-    # type: (...) -> Dict[Text, Any]
+    defaults: Optional[Dict[Text, Any]], custom: Optional[Dict[Text, Any]]
+) -> Dict[Text, Any]:
     if defaults:
         cfg = copy.deepcopy(defaults)
     else:
@@ -67,58 +58,75 @@ def override_defaults(
     return cfg
 
 
-def make_path_absolute(path):
-    # type: (Text) -> Text
-    if path and not os.path.isabs(path):
-        return os.path.join(os.getcwd(), path)
-    else:
-        return path
-
-
 def component_config_from_pipeline(
-        name,  # type: Text
-        pipeline,  # type: List[Dict[Text, Any]]
-        defaults=None  # type: Optional[Dict[Text, Any]]
-):
-    # type: (...) -> Dict[Text, Any]
-    for c in pipeline:
-        if c.get("name") == name:
-            return override_defaults(defaults, c)
-    else:
+    index: int,
+    pipeline: List[Dict[Text, Any]],
+    defaults: Optional[Dict[Text, Any]] = None,
+) -> Dict[Text, Any]:
+    try:
+        c = pipeline[index]
+        return override_defaults(defaults, c)
+    except IndexError:
+        logger.warning(
+            "Tried to get configuration value for component "
+            "number {} which is not part of the pipeline. "
+            "Returning `defaults`."
+            "".format(index)
+        )
         return override_defaults(defaults, {})
 
 
 class RasaNLUModelConfig(object):
-    DEFAULT_PROJECT_NAME = "default"
-
     def __init__(self, configuration_values=None):
-        """Create a model configuration, optionally overridding
+        """Create a model configuration, optionally overriding
         defaults with a dictionary ``configuration_values``.
         """
         if not configuration_values:
             configuration_values = {}
 
-        self.override(DEFAULT_CONFIG)
+        self.language = "en"
+        self.pipeline = []
+        self.data = None
+
         self.override(configuration_values)
 
-        if isinstance(self.__dict__['pipeline'], six.string_types):
-            from chatbot_nlu import registry
+        if self.__dict__["pipeline"] is None:
+            # replaces None with empty list
+            self.__dict__["pipeline"] = []
+        elif isinstance(self.__dict__["pipeline"], str):
+            from rasa.nlu import registry
 
-            template_name = self.__dict__['pipeline']
+            template_name = self.__dict__["pipeline"]
+            new_names = {
+                "spacy_sklearn": "pretrained_embeddings_spacy",
+                "tensorflow_embedding": "supervised_embeddings",
+            }
+            if template_name in new_names:
+                logger.warning(
+                    "You have specified the pipeline template "
+                    "'{}' which has been renamed to '{}'. "
+                    "Please update your code as it will no "
+                    "longer work with future versions of "
+                    "Rasa NLU.".format(template_name, new_names[template_name])
+                )
+                template_name = new_names[template_name]
+
             pipeline = registry.pipeline_template(template_name)
 
             if pipeline:
                 # replaces the template with the actual components
-                self.__dict__['pipeline'] = pipeline
+                self.__dict__["pipeline"] = pipeline
             else:
                 known_templates = ", ".join(
-                        registry.registered_pipeline_templates.keys())
+                    registry.registered_pipeline_templates.keys()
+                )
 
-                raise InvalidConfigError("No pipeline specified and unknown "
-                                         "pipeline template '{}' passed. Known "
-                                         "pipeline templates: {}"
-                                         "".format(template_name,
-                                                   known_templates))
+                raise InvalidConfigError(
+                    "No pipeline specified and unknown "
+                    "pipeline template '{}' passed. Known "
+                    "pipeline templates: {}"
+                    "".format(template_name, known_templates)
+                )
 
         for key, value in self.items():
             setattr(self, key, value)
@@ -156,8 +164,8 @@ class RasaNLUModelConfig(object):
     def view(self):
         return json_to_string(self.__dict__, indent=4)
 
-    def for_component(self, name, defaults=None):
-        return component_config_from_pipeline(name, self.pipeline, defaults)
+    def for_component(self, index, defaults=None):
+        return component_config_from_pipeline(index, self.pipeline, defaults)
 
     @property
     def component_names(self):
@@ -166,13 +174,15 @@ class RasaNLUModelConfig(object):
         else:
             return []
 
-    def set_component_attr(self, name, **kwargs):
-        for c in self.pipeline:
-            if c.get("name") == name:
-                c.update(kwargs)
-        else:
-            logger.warn("Tried to set configuration value for component '{}' "
-                        "which is not part of the pipeline.".format(name))
+    def set_component_attr(self, index, **kwargs):
+        try:
+            self.pipeline[index].update(kwargs)
+        except IndexError:
+            logger.warning(
+                "Tried to set configuration value for component "
+                "number {} which is not part of the pipeline."
+                "".format(index)
+            )
 
     def override(self, config):
         if config:
