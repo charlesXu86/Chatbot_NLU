@@ -86,15 +86,15 @@ class BertVectorsFeaturizer(Featurizer):
             X = np.array(tokens_text)
 
             for i, example in enumerate(examples):
-                # example.set(
-                #     "text_features", self._combine_with_existing_text_features(example, X[i]))
-                example.set("text_features")
+                example.set(
+                    "text_features", self._combine_with_existing_features(example, X[i]))
+                # example.set("text_features")
 
     def process(self, message, **kwargs):
         # type: (Message, **Any) -> None
         message_text = self._get_message_text([message])
 
-        message.set("text_features", self._combine_with_existing_text_features(
+        message.set("text_features", self._combine_with_existing_features(
             message, message_text))
 
     @classmethod

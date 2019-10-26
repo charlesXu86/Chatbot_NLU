@@ -20,7 +20,7 @@ from chatbot_nlu.components import Component
 from chatbot_nlu.training_data import Message
 
 
-basedir = str(pathlib.Path(os.path.abspath(__file__)).parent)
+basedir = str(pathlib.Path(os.path.abspath(__file__)).parent.parent)
 
 intent_dict = {
  	"JS": "接受",

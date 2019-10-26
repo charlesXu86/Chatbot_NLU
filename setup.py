@@ -33,7 +33,7 @@ required = [
             ]
 
 setup(name=NAME,
-        version='1.0.1',
+        version='1.0.2',
         description=DESCRIPTION,
         long_description=README,
         long_description_content_type="text/markdown",
@@ -41,6 +41,7 @@ setup(name=NAME,
         author_email=EMAIL,
         url=URL,
         packages=find_packages(),
+        package_data={'chatbot_nlu': ['resource/*.json']},
         install_requires=required,
         license=LICENSE,
         classifiers=['License :: OSI Approved :: MIT License',
