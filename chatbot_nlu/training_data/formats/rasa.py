@@ -6,12 +6,12 @@ from __future__ import unicode_literals
 import logging
 from collections import defaultdict
 
-from rasa_nlu_gao.training_data import Message, TrainingData
-from rasa_nlu_gao.training_data.formats.readerwriter import (
+from chatbot_nlu.training_data import Message, TrainingData
+from chatbot_nlu.training_data.formats.readerwriter import (
     JsonTrainingDataReader,
     TrainingDataWriter)
-from rasa_nlu_gao.training_data.util import transform_entity_synonyms
-from rasa_nlu_gao.utils import json_to_string
+from chatbot_nlu.training_data.util import transform_entity_synonyms
+from chatbot_nlu.utils import json_to_string
 
 logger = logging.getLogger(__name__)
 

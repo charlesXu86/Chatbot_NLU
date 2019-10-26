@@ -178,7 +178,7 @@ class DataRouter(object):
 
     def _list_projects_in_cloud(self):
         try:
-            from rasa_nlu_gao.persistor import get_persistor
+            from chatbot_nlu.persistor import get_persistor
             p = get_persistor(self.remote_storage)
             if p is not None:
                 return p.list_projects()
@@ -197,16 +197,16 @@ class DataRouter(object):
         If no emulator is specified, we will use the Rasa NLU format."""
 
         if mode is None:
-            from rasa_nlu_gao.emulators import NoEmulator
+            from chatbot_nlu.emulators import NoEmulator
             return NoEmulator()
         elif mode.lower() == 'wit':
-            from rasa_nlu_gao.emulators.wit import WitEmulator
+            from chatbot_nlu.emulators.wit import WitEmulator
             return WitEmulator()
         elif mode.lower() == 'luis':
-            from rasa_nlu_gao.emulators.luis import LUISEmulator
+            from chatbot_nlu.emulators.luis import LUISEmulator
             return LUISEmulator()
         elif mode.lower() == 'dialogflow':
-            from rasa_nlu_gao.emulators.dialogflow import DialogflowEmulator
+            from chatbot_nlu.emulators.dialogflow import DialogflowEmulator
             return DialogflowEmulator()
         else:
             raise ValueError("unknown mode : {0}".format(mode))
@@ -214,7 +214,7 @@ class DataRouter(object):
     @staticmethod
     def _tf_in_pipeline(model_config):
         # type: (RasaNLUModelConfig) -> bool
-        from rasa_nlu_gao.classifiers.embedding_intent_classifier import \
+        from chatbot_nlu.classifiers.embedding_intent_classifier import \
             EmbeddingIntentClassifier
         return EmbeddingIntentClassifier.name in model_config.component_names
 

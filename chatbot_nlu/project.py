@@ -229,7 +229,7 @@ class Project(object):
         # type: () -> List[Text]
 
         try:
-            from rasa_nlu_gao.persistor import get_persistor
+            from chatbot_nlu.persistor import get_persistor
             p = get_persistor(self.remote_storage)
             if p is not None:
                 return p.list_models(self._project)
@@ -242,7 +242,7 @@ class Project(object):
 
     def _load_model_from_cloud(self, model_name, target_path):
         try:
-            from rasa_nlu_gao.persistor import get_persistor
+            from chatbot_nlu.persistor import get_persistor
             p = get_persistor(self.remote_storage)
             if p is not None:
                 p.retrieve(model_name, self._project, target_path)

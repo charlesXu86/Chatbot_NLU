@@ -5,7 +5,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from rasa_nlu_gao.utils import ordered
+from chatbot_nlu.utils import ordered
 
 
 class Message(object):

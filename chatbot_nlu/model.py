@@ -15,7 +15,7 @@ from typing import List
 from typing import Optional
 from typing import Text
 
-import rasa_nlu_gao
+import chatbot_nlu
 from chatbot_nlu import components, utils, config
 from chatbot_nlu.components import Component, ComponentBuilder
 from chatbot_nlu.config import RasaNLUModelConfig, override_defaults
@@ -114,7 +114,7 @@ class Metadata(object):
 
         metadata.update({
             "trained_at": datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
-            "rasa_nlu_version": rasa_nlu_gao.__version__,
+            "rasa_nlu_version": chatbot_nlu.__version__,
         })
 
         filename = os.path.join(model_dir, 'metadata.json')
@@ -270,7 +270,7 @@ class Interpreter(object):
                 "Either retrain the model, or run with"
                 "an older version. "
                 "Model version: {} Instance version: {}"
-                "".format(model_version, rasa_nlu_gao.__version__))
+                "".format(model_version, chatbot_nlu.__version__))
 
     @staticmethod
     def load(model_dir, component_builder=None, skip_validation=False):

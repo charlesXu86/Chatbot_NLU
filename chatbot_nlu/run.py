@@ -36,9 +36,6 @@ def run_cmdline(model_path, component_builder=None):
                 "press enter to parse it.")
     while True:
         text = input().strip()
-        if six.PY2:
-            # in python 2 input doesn't return unicode values
-            text = text.decode("utf-8")
         r = interpreter.parse(text)
         print(json.dumps(r, indent=2))
         logger.info("Next message:")

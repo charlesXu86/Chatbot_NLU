@@ -4,7 +4,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import json
-from rasa_nlu_gao import utils
+from chatbot_nlu import utils
 
 
 class TrainingDataReader(object):

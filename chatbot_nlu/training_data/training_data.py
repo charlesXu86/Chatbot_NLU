@@ -1,30 +1,27 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import logging
 import os
-import warnings
-
-from copy import deepcopy
-from builtins import object, str
-from rasa_nlu_gao.training_data import Message
-
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Text
-
-from collections import Counter
 import random
+import warnings
+from collections import Counter
+from copy import deepcopy
+from os.path import relpath
+from typing import Any, Dict, List, Optional, Set, Text, Tuple, Union
 
-from rasa_nlu_gao.utils import lazyproperty, write_to_file
-from rasa_nlu_gao.utils import list_to_str
-from rasa_nlu_gao.training_data.util import check_duplicate_synonym
+from rasa.nlu.utils import list_to_str
+import rasa.nlu.utils
+import rasa.utils.common as rasa_utils
+from rasa.nlu.training_data.message import Message
+from rasa.nlu.training_data.util import check_duplicate_synonym
+from rasa.nlu.constants import (
+    MESSAGE_INTENT_ATTRIBUTE,
+    MESSAGE_RESPONSE_ATTRIBUTE,
+    MESSAGE_RESPONSE_KEY_ATTRIBUTE,
+    RESPONSE_IDENTIFIER_DELIMITER,
+)
+
+DEFAULT_TRAINING_DATA_OUTPUT_PATH = "training_data.json"
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +33,14 @@ class TrainingData(object):
     MIN_EXAMPLES_PER_INTENT = 2
     MIN_EXAMPLES_PER_ENTITY = 2
 
-    def __init__(self,
-                 training_examples=None,
-                 entity_synonyms=None,
-                 regex_features=None):
-        # type: (Optional[List[Message]], Optional[Dict[Text, Text]]) -> None
+    def __init__(
+        self,
+        training_examples: Optional[List[Message]] = None,
+        entity_synonyms: Optional[Dict[Text, Text]] = None,
+        regex_features: Optional[List[Dict[Text, Text]]] = None,
+        lookup_tables: Optional[List[Dict[Text, Text]]] = None,
+        nlg_stories: Optional[Dict[Text, List[Text]]] = None,
+    ) -> None:
 
         if training_examples:
             self.training_examples = self.sanitize_examples(training_examples)
@@ -49,32 +49,65 @@ class TrainingData(object):
         self.entity_synonyms = entity_synonyms if entity_synonyms else {}
         self.regex_features = regex_features if regex_features else []
         self.sort_regex_features()
+        self.lookup_tables = lookup_tables if lookup_tables else []
+        self.nlg_stories = nlg_stories if nlg_stories else {}
 
-        self.validate()
-        self.print_stats()
-
-    def merge(self, *others):
+    def merge(self, *others: "TrainingData") -> "TrainingData":
         """Return merged instance of this data with other training data."""
 
         training_examples = deepcopy(self.training_examples)
         entity_synonyms = self.entity_synonyms.copy()
         regex_features = deepcopy(self.regex_features)
+        lookup_tables = deepcopy(self.lookup_tables)
+        nlg_stories = deepcopy(self.nlg_stories)
+        others = [other for other in others if other]
 
         for o in others:
             training_examples.extend(deepcopy(o.training_examples))
             regex_features.extend(deepcopy(o.regex_features))
+            lookup_tables.extend(deepcopy(o.lookup_tables))
 
             for text, syn in o.entity_synonyms.items():
-                check_duplicate_synonym(entity_synonyms, text, syn,
-                                        "merging training data")
+                check_duplicate_synonym(
+                    entity_synonyms, text, syn, "merging training data"
+                )
 
             entity_synonyms.update(o.entity_synonyms)
+            nlg_stories.update(o.nlg_stories)
 
-        return TrainingData(training_examples, entity_synonyms, regex_features)
+        return TrainingData(
+            training_examples,
+            entity_synonyms,
+            regex_features,
+            lookup_tables,
+            nlg_stories,
+        )
+
+    def filter_by_intent(self, intent: Text):
+        """Filter training examples """
+
+        training_examples = []
+        for ex in self.training_examples:
+            if ex.get("intent") == intent:
+                training_examples.append(ex)
+
+        return TrainingData(
+            training_examples,
+            self.entity_synonyms,
+            self.regex_features,
+            self.lookup_tables,
+        )
+
+    def __hash__(self) -> int:
+        from rasa.core import utils as core_utils
+
+        stringified = self.nlu_as_json() + self.nlg_as_markdown()
+        text_hash = core_utils.get_text_hash(stringified)
+
+        return int(text_hash, 16)
 
     @staticmethod
-    def sanitize_examples(examples):
-        # type: (List[Message]) -> List[Message]
+    def sanitize_examples(examples: List[Message]) -> List[Message]:
         """Makes sure the training data is clean.
 
         removes trailing whitespaces from intent annotations."""
@@ -82,120 +115,289 @@ class TrainingData(object):
         for ex in examples:
             if ex.get("intent"):
                 ex.set("intent", ex.get("intent").strip())
+            if ex.get("response"):
+                ex.set("response", ex.get("response").strip())
         return examples
 
-    @lazyproperty
-    def intent_examples(self):
-        # type: () -> List[Message]
-        return [ex
-                for ex in self.training_examples
-                if ex.get("intent")]
+    @rasa_utils.lazy_property
+    def intent_examples(self) -> List[Message]:
+        return [ex for ex in self.training_examples if ex.get("intent")]
 
-    @lazyproperty
-    def entity_examples(self):
-        # type: () -> List[Message]
-        return [ex
-                for ex in self.training_examples
-                if ex.get("entities")]
+    @rasa_utils.lazy_property
+    def response_examples(self) -> List[Message]:
+        return [ex for ex in self.training_examples if ex.get("response")]
 
-    @lazyproperty
-    def intents(self):
+    @rasa_utils.lazy_property
+    def entity_examples(self) -> List[Message]:
+        return [ex for ex in self.training_examples if ex.get("entities")]
+
+    @rasa_utils.lazy_property
+    def intents(self) -> Set[Text]:
         """Returns the set of intents in the training data."""
         return set([ex.get("intent") for ex in self.training_examples]) - {None}
 
-    @lazyproperty
-    def examples_per_intent(self):
+    @rasa_utils.lazy_property
+    def responses(self) -> Set[Text]:
+        """Returns the set of responses in the training data."""
+        return set([ex.get("response") for ex in self.training_examples]) - {None}
+
+    @rasa_utils.lazy_property
+    def retrieval_intents(self) -> Set[Text]:
+        """Returns the total number of response types in the training data"""
+        return set(
+            [
+                ex.get("intent")
+                for ex in self.training_examples
+                if ex.get("response") is not None
+            ]
+        )
+
+    @rasa_utils.lazy_property
+    def examples_per_intent(self) -> Dict[Text, int]:
         """Calculates the number of examples per intent."""
         intents = [ex.get("intent") for ex in self.training_examples]
         return dict(Counter(intents))
 
-    @lazyproperty
-    def entities(self):
+    @rasa_utils.lazy_property
+    def examples_per_response(self) -> Dict[Text, int]:
+        """Calculates the number of examples per response."""
+        return dict(Counter(self.responses))
+
+    @rasa_utils.lazy_property
+    def entities(self) -> Set[Text]:
         """Returns the set of entity types in the training data."""
         entity_types = [e.get("entity") for e in self.sorted_entities()]
         return set(entity_types)
 
-    @lazyproperty
-    def examples_per_entity(self):
+    @rasa_utils.lazy_property
+    def examples_per_entity(self) -> Dict[Text, int]:
         """Calculates the number of examples per entity."""
         entity_types = [e.get("entity") for e in self.sorted_entities()]
         return dict(Counter(entity_types))
 
-    def sort_regex_features(self):
+    def sort_regex_features(self) -> None:
         """Sorts regex features lexicographically by name+pattern"""
-        self.regex_features = sorted(self.regex_features,
-                                     key=lambda e: "{}+{}".format(e['name'],
-                                                                  e['pattern']))
+        self.regex_features = sorted(
+            self.regex_features, key=lambda e: "{}+{}".format(e["name"], e["pattern"])
+        )
 
-    def as_json(self, **kwargs):
-        # type: (**Any) -> str
+    def fill_response_phrases(self):
+        """Set response phrase for all examples by looking up NLG stories"""
+        for example in self.training_examples:
+            response_key = example.get(MESSAGE_RESPONSE_KEY_ATTRIBUTE)
+            # if response_key is None, that means the corresponding intent is not a retrieval intent
+            # and hence no response text needs to be fetched.
+            # If response_key is set, fetch the corresponding response text
+            if response_key:
+                # look for corresponding bot utterance
+                story_lookup_intent = example.get_combined_intent_response_key()
+                assistant_utterances = self.nlg_stories.get(story_lookup_intent, [])
+                if assistant_utterances:
+                    # selecting only first assistant utterance for now
+                    example.set(MESSAGE_RESPONSE_ATTRIBUTE, assistant_utterances[0])
+                else:
+                    raise ValueError(
+                        "No response phrases found for {}. Check training data "
+                        "files for a possible wrong intent name in NLU/NLG file".format(
+                            story_lookup_intent
+                        )
+                    )
+
+    def nlu_as_json(self, **kwargs: Any) -> Text:
         """Represent this set of training examples as json."""
-        from rasa_nlu_gao.training_data.formats import RasaWriter
-        return RasaWriter().dumps(self)
+        from rasa.nlu.training_data.formats import (  # pytype: disable=pyi-error
+            RasaWriter,
+        )
 
-    def as_markdown(self):
-        # type: () -> str
-        """Generates the markdown representation of the TrainingData."""
-        from rasa_nlu_gao.training_data.formats import MarkdownWriter
+        return RasaWriter().dumps(self, **kwargs)
+
+    def as_json(self) -> Text:
+
+        logger.warning(
+            "DEPRECATION warning: function as_json() is deprecated and will be removed "
+            "in future versions. Use nlu_as_json() instead."
+        )
+
+        return self.nlu_as_json()
+
+    def nlg_as_markdown(self) -> Text:
+        """Generates the markdown representation of the response phrases(NLG) of
+        TrainingData."""
+
+        from rasa.nlu.training_data.formats import (  # pytype: disable=pyi-error
+            NLGMarkdownWriter,
+        )
+
+        return NLGMarkdownWriter().dumps(self)
+
+    def nlu_as_markdown(self) -> Text:
+        """Generates the markdown representation of the NLU part of TrainingData."""
+        from rasa.nlu.training_data.formats import (  # pytype: disable=pyi-error
+            MarkdownWriter,
+        )
+
         return MarkdownWriter().dumps(self)
 
-    def persist(self, dir_name):
-        # type: (Text) -> Dict[Text, Any]
+    def as_markdown(self) -> Text:
+
+        logger.warning(
+            "DEPRECATION warning: function as_markdown() is deprecated and will be removed "
+            "in future versions. Use nlu_as_markdown() and nlg_as_markdown() instead"
+        )
+
+        return self.nlu_as_markdown()
+
+    def persist_nlu(self, filename: Text = DEFAULT_TRAINING_DATA_OUTPUT_PATH):
+
+        if filename.endswith("json"):
+            rasa.nlu.utils.write_to_file(filename, self.nlu_as_json(indent=2))
+        elif filename.endswith("md"):
+            rasa.nlu.utils.write_to_file(filename, self.nlu_as_markdown())
+        else:
+            ValueError(
+                "Unsupported file format detected. Supported file formats are 'json' "
+                "and 'md'."
+            )
+
+    def persist_nlg(self, filename):
+
+        nlg_serialized_data = self.nlg_as_markdown()
+        if nlg_serialized_data == "":
+            return
+
+        rasa.nlu.utils.write_to_file(filename, self.nlg_as_markdown())
+
+    @staticmethod
+    def get_nlg_persist_filename(nlu_filename):
+
+        # Add nlg_ as prefix and change extension to .md
+        filename = os.path.join(
+            os.path.dirname(nlu_filename),
+            "nlg_" + os.path.splitext(os.path.basename(nlu_filename))[0] + ".md",
+        )
+        return filename
+
+    def persist(
+        self, dir_name: Text, filename: Text = DEFAULT_TRAINING_DATA_OUTPUT_PATH
+    ) -> Dict[Text, Any]:
         """Persists this training data to disk and returns necessary
         information to load it again."""
 
-        data_file = os.path.join(dir_name, "training_data.json")
-        write_to_file(data_file, self.as_json(indent=2))
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
 
-        return {
-            "training_data": "training_data.json"
-        }
+        nlu_data_file = os.path.join(dir_name, filename)
+        self.persist_nlu(nlu_data_file)
+        self.persist_nlg(self.get_nlg_persist_filename(nlu_data_file))
 
-    def sorted_entities(self):
-        # type: () -> List[Any]
+        return {"training_data": relpath(nlu_data_file, dir_name)}
+
+    def sorted_entities(self) -> List[Any]:
         """Extract all entities from examples and sorts them by entity type."""
 
-        entity_examples = [entity
-                           for ex in self.entity_examples
-                           for entity in ex.get("entities")]
+        entity_examples = [
+            entity for ex in self.entity_examples for entity in ex.get("entities")
+        ]
         return sorted(entity_examples, key=lambda e: e["entity"])
 
-    def sorted_intent_examples(self):
-        # type: () -> List[Message]
-        """Sorts the intent examples by the name of the intent."""
+    def sorted_intent_examples(self) -> List[Message]:
+        """Sorts the intent examples by the name of the intent and then response"""
 
-        return sorted(self.intent_examples, key=lambda e: e.get("intent"))
+        return sorted(
+            self.intent_examples, key=lambda e: (e.get("intent"), e.get("response"))
+        )
 
-    def validate(self):
-        # type: () -> None
+    def validate(self) -> None:
         """Ensures that the loaded training data is valid.
 
         Checks that the data has a minimum of certain training examples."""
 
         logger.debug("Validating training data...")
         if "" in self.intents:
-            warnings.warn("Found empty intent, please check your "
-                          "training data. This may result in wrong "
-                          "intent predictions.")
+            warnings.warn(
+                "Found empty intent, please check your "
+                "training data. This may result in wrong "
+                "intent predictions."
+            )
+
+        if "" in self.responses:
+            warnings.warn(
+                "Found empty response, please check your "
+                "training data. This may result in wrong "
+                "response predictions."
+            )
 
         # emit warnings for intents with only a few training samples
         for intent, count in self.examples_per_intent.items():
             if count < self.MIN_EXAMPLES_PER_INTENT:
-                warnings.warn("Intent '{}' has only {} training examples! "
-                              "Minimum is {}, training may fail."
-                              .format(intent, count,
-                                      self.MIN_EXAMPLES_PER_INTENT))
+                warnings.warn(
+                    "Intent '{}' has only {} training examples! "
+                    "Minimum is {}, training may fail.".format(
+                        intent, count, self.MIN_EXAMPLES_PER_INTENT
+                    )
+                )
 
         # emit warnings for entities with only a few training samples
         for entity_type, count in self.examples_per_entity.items():
             if count < self.MIN_EXAMPLES_PER_ENTITY:
-                warnings.warn("Entity '{}' has only {} training examples! "
-                              "minimum is {}, training may fail."
-                              "".format(entity_type, count,
-                                        self.MIN_EXAMPLES_PER_ENTITY))
+                warnings.warn(
+                    "Entity '{}' has only {} training examples! "
+                    "minimum is {}, training may fail."
+                    "".format(entity_type, count, self.MIN_EXAMPLES_PER_ENTITY)
+                )
 
-    def train_test_split(self, train_frac=0.8):
-        """Split into a training and test dataset, preserving the fraction of examples per intent."""
+    def train_test_split(
+        self, train_frac: float = 0.8
+    ) -> Tuple["TrainingData", "TrainingData"]:
+        """Split into a training and test dataset,
+        preserving the fraction of examples per intent."""
+
+        # collect all nlu data
+        test, train = self.split_nlu_examples(train_frac)
+
+        # collect all nlg stories
+        test_nlg_stories, train_nlg_stories = self.split_nlg_responses(test, train)
+
+        data_train = TrainingData(
+            train,
+            entity_synonyms=self.entity_synonyms,
+            regex_features=self.regex_features,
+            lookup_tables=self.lookup_tables,
+            nlg_stories=train_nlg_stories,
+        )
+        data_train.fill_response_phrases()
+
+        data_test = TrainingData(
+            test,
+            entity_synonyms=self.entity_synonyms,
+            regex_features=self.regex_features,
+            lookup_tables=self.lookup_tables,
+            nlg_stories=test_nlg_stories,
+        )
+        data_test.fill_response_phrases()
+
+        return data_train, data_test
+
+    def split_nlg_responses(self, test, train):
+
+        train_nlg_stories = self.build_nlg_stories_from_examples(train)
+        test_nlg_stories = self.build_nlg_stories_from_examples(test)
+        return test_nlg_stories, train_nlg_stories
+
+    @staticmethod
+    def build_nlg_stories_from_examples(examples):
+
+        nlg_stories = {}
+        for ex in examples:
+            if ex.get(MESSAGE_RESPONSE_KEY_ATTRIBUTE) and ex.get(
+                MESSAGE_RESPONSE_ATTRIBUTE
+            ):
+                nlg_stories[ex.get_combined_intent_response_key()] = [
+                    ex.get(MESSAGE_RESPONSE_ATTRIBUTE)
+                ]
+        return nlg_stories
+
+    def split_nlu_examples(self, train_frac):
         train, test = [], []
         for intent, count in self.examples_per_intent.items():
             ex = [e for e in self.intent_examples if e.data["intent"] == intent]
@@ -203,24 +405,31 @@ class TrainingData(object):
             n_train = int(count * train_frac)
             train.extend(ex[:n_train])
             test.extend(ex[n_train:])
+        return test, train
 
-        data_train = TrainingData(
-            train,
-            entity_synonyms=self.entity_synonyms,
-            regex_features=self.regex_features)
-        data_test = TrainingData(
-            test,
-            entity_synonyms=self.entity_synonyms,
-            regex_features=self.regex_features)
-        return data_train, data_test
+    def print_stats(self) -> None:
+        logger.info(
+            "Training data stats: \n"
+            + "\t- intent examples: {} ({} distinct intents)\n".format(
+                len(self.intent_examples), len(self.intents)
+            )
+            + "\t- Found intents: {}\n".format(list_to_str(self.intents))
+            + "\t- Number of response examples: {} ({} distinct response)\n".format(
+                len(self.response_examples), len(self.responses)
+            )
+            + "\t- entity examples: {} ({} distinct entities)\n".format(
+                len(self.entity_examples), len(self.entities)
+            )
+            + "\t- found entities: {}\n".format(list_to_str(self.entities))
+        )
 
-    def print_stats(self):
-        logger.info("Training data stats: \n" +
-                    "\t- intent examples: {} ({} distinct intents)\n".format(
-                            len(self.intent_examples), len(self.intents)) +
-                    "\t- Found intents: {}\n".format(
-                            list_to_str(self.intents)) +
-                    "\t- entity examples: {} ({} distinct entities)\n".format(
-                            len(self.entity_examples), len(self.entities)) +
-                    "\t- found entities: {}\n".format(
-                            list_to_str(self.entities)))
+    def is_empty(self) -> bool:
+        """Checks if any training data was loaded."""
+
+        lists_to_check = [
+            self.training_examples,
+            self.entity_synonyms,
+            self.regex_features,
+            self.lookup_tables,
+        ]
+        return not any([len(l) > 0 for l in lists_to_check])

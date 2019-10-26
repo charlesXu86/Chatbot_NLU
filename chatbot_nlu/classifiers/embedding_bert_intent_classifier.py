@@ -42,14 +42,17 @@ if typing.TYPE_CHECKING:
     from rasa.nlu.model import Metadata
     from rasa.nlu.training_data import Message
 
-import tensorflow as tf
+try:
+    import tensorflow as tf
+except ImportError:
+    tf = None
 
 
 
 class EmbeddingBertIntentClassifier(Component):
     """Intent classifier using supervised bert embeddings."""
 
-    provides = ["classifiers", "intent_ranking"]
+    provides = ["intent", "intent_ranking"]
 
     requires = ["text_features"]
 
@@ -256,7 +259,7 @@ class EmbeddingBertIntentClassifier(Component):
         X = np.stack([e.get("text_features")
                       for e in training_data.intent_examples])
 
-        intents_for_X = np.array([intent_dict[e.get("classifiers")]
+        intents_for_X = np.array([intent_dict[e.get("intent")]
                                   for e in training_data.intent_examples])
 
         Y = np.stack([self.encoded_all_intents[intent_idx]

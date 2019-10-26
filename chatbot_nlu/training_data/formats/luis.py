@@ -5,8 +5,8 @@ from __future__ import unicode_literals
 
 import logging
 
-from rasa_nlu_gao.training_data import Message, TrainingData
-from rasa_nlu_gao.training_data.formats.readerwriter import JsonTrainingDataReader
+from chatbot_nlu.training_data import Message, TrainingData
+from chatbot_nlu.training_data.formats.readerwriter import JsonTrainingDataReader
 
 logger = logging.getLogger(__name__)
 

@@ -8,11 +8,11 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Text
 
-from rasa.nlu import utils
-from rasa.nlu.featurizers import Featurizer
-from rasa.nlu.training_data import Message
-from rasa.nlu.components import Component
-from rasa.nlu.model import Metadata
+from chatbot_nlu import utils
+from chatbot_nlu.featurizers import Featurizer
+from chatbot_nlu.training_data import Message
+from chatbot_nlu.components import Component
+from chatbot_nlu.model import Metadata
 from bert_serving.client import ConcurrentBertClient
 
 
@@ -86,8 +86,9 @@ class BertVectorsFeaturizer(Featurizer):
             X = np.array(tokens_text)
 
             for i, example in enumerate(examples):
-                example.set(
-                    "text_features", self._combine_with_existing_text_features(example, X[i]))
+                # example.set(
+                #     "text_features", self._combine_with_existing_text_features(example, X[i]))
+                example.set("text_features")
 
     def process(self, message, **kwargs):
         # type: (Message, **Any) -> None
