@@ -1,4 +1,15 @@
-# -*- coding: utf-8 -*-
+'''
+@Author  :   Xu
+
+@Software:   PyCharm
+
+@File    :   training_data.py
+
+@Time    :   2019-09-25 14:23
+
+@Desc    :  读取解析nlu.data
+
+'''
 
 import logging
 import os

@@ -24,9 +24,7 @@ import io
 
 import typing
 import pickle
-import numpy as np
 
-from builtins import str
 from typing import Any, Dict, List, Optional, Text, Tuple
 
 from chatbot_nlu.extractors import EntityExtractor
@@ -55,6 +53,7 @@ except ImportError:
 
 
 class BilstmCRFEntityExtractor(EntityExtractor):
+
     provides = ["entities"]
 
     # requires = ["tokens"]
@@ -68,7 +67,7 @@ class BilstmCRFEntityExtractor(EntityExtractor):
         "num_segs": 4,
         "batch_size": 20,
         "zeros": True,
-        "tag_schema": "iobes",
+        "tag_schema": "iob",
         "lower": False,
         "model_type": "idcnn",
         "clip": 5,
@@ -206,6 +205,7 @@ class BilstmCRFEntityExtractor(EntityExtractor):
                 s_str = '\n'.join(' '.join(w) for w in s)
                 raise Exception('Sentences should be given in IOB format! ' +
                                 'Please check sentence %i:\n%s' % (i, s_str))
+
             if tag_scheme == 'iob':
                 # If format was IOB1, we convert to IOB2
                 for word, new_tag in zip(s, tags):

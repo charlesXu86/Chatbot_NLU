@@ -47,8 +47,6 @@ try:
 except ImportError:
     tf = None
 
-
-
 class EmbeddingBertIntentClassifier(Component):
     """Intent classifier using supervised bert embeddings."""
 
@@ -203,15 +201,15 @@ class EmbeddingBertIntentClassifier(Component):
                 'Please install `tensorflow`. '
                 'For example with `pip install tensorflow`.')
 
-
-
     # training data helpers:
     @staticmethod
     def _create_intent_dict(training_data):
         """Create classifiers dictionary"""
 
-        distinct_intents = set([example.get("classifiers")
+        distinct_intents = set([example.get("intent")
                                 for example in training_data.intent_examples])
+
+        logger.info('distinct_intents is {}'.format(distinct_intents))
         return {intent: idx
                 for idx, intent in enumerate(sorted(distinct_intents))}
 
@@ -223,6 +221,7 @@ class EmbeddingBertIntentClassifier(Component):
                                for intent in intents
                                for token in intent.split(
                                    intent_split_symbol)])
+        logger.info('distinct_tokens is {}'.format(distinct_tokens))
         return {token: idx
                 for idx, token in enumerate(sorted(distinct_tokens))}
 
@@ -287,6 +286,7 @@ class EmbeddingBertIntentClassifier(Component):
         """Train the embedding classifiers classifier on a data set."""
 
         intent_dict = self._create_intent_dict(training_data)
+        logger.info('intent_dict is {}'.format(intent_dict))
 
         if len(intent_dict) < 2:
             logger.error("Can not train an classifiers classifier. "
@@ -430,10 +430,9 @@ class EmbeddingBertIntentClassifier(Component):
                                         reverse=True)
                 intent_ranking = intent_ranking[:INTENT_RANKING_LENGTH]
 
-        message.set("classifiers", intent, add_to_output=True)
+        message.set("intent", intent, add_to_output=True)
         message.set("intent_ranking", intent_ranking, add_to_output=True)
 
-    # def persist(self, model_dir):
     def persist(self,
                 file_name: Text,
                 model_dir: Text) -> Optional[Dict[Text, Any]]:

@@ -2,9 +2,9 @@ import logging
 import typing
 from typing import Any, Dict, Optional, Text
 
-from rasa.nlu.classifiers.embedding_intent_classifier import EmbeddingIntentClassifier
+from chatbot_nlu.classifiers.embedding_intent_classifier import EmbeddingIntentClassifier
 from rasa.core.actions.action import RESPOND_PREFIX
-from rasa.nlu.constants import (
+from chatbot_nlu.constants import (
     MESSAGE_RESPONSE_ATTRIBUTE,
     MESSAGE_INTENT_ATTRIBUTE,
     MESSAGE_TEXT_ATTRIBUTE,

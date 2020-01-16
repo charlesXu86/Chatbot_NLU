@@ -90,6 +90,7 @@ def prepare_dataset(sentences, char_to_id, tag_to_id, seg, lower=False, train=Tr
 
     def f(x):
         return x.lower() if lower else x
+
     data = []
     for s in sentences:
         string = [w[0] for w in s]
@@ -129,7 +130,7 @@ def get_seg_features(string, seg):
 
 
 class BatchManager(object):
-    def __init__(self, data,  batch_size):
+    def __init__(self, data, batch_size):
         # 排序并填充，使单个批次的每个样本保持长度一致，不同批次的长度不一定相同
         self.batch_data = self.sort_and_pad(data, batch_size)
         self.len_data = len(self.batch_data)
@@ -141,7 +142,7 @@ class BatchManager(object):
         batch_data = list()
         for i in range(num_batch):
             batch_data.append(self.pad_data(
-                sorted_data[i*int(batch_size): (i+1)*int(batch_size)]))
+                sorted_data[i * int(batch_size): (i + 1) * int(batch_size)]))
         return batch_data
 
     @staticmethod
@@ -180,7 +181,7 @@ def result_to_json(string, tags):
     for char, tag in zip(string, tags):
         if tag[0] == "S":
             item["entities"].append(
-                {"value": char, "start": idx, "end": idx+1, "entity": tag[2:]})
+                {"value": char, "start": idx, "end": idx + 1, "entity": tag[2:]})
         elif tag[0] == "B":
             entity_name += char
             entity_start = idx
@@ -211,7 +212,7 @@ def iob_iobes(tags):
             new_tags.append(tag)
         elif tag.split('-')[0] == 'B':
             if i + 1 != len(tags) and \
-               tags[i + 1].split('-')[0] == 'I':
+                    tags[i + 1].split('-')[0] == 'I':
                 new_tags.append(tag)
             else:
                 new_tags.append(tag.replace('B-', 'S-'))
@@ -329,4 +330,4 @@ def replace_html(s):
     s = s.replace("&rdquo;", "")
     s = s.replace("&mdash;", "")
     s = s.replace("\xa0", " ")
-    return(s)
+    return (s)

@@ -16,10 +16,7 @@ from chatbot_nlu.components import Component
 from multiprocessing import cpu_count
 import numpy as np
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 
 logger = logging.getLogger(__name__)
 

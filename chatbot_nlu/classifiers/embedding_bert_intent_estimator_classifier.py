@@ -49,7 +49,7 @@ except ImportError:
 class EmbeddingBertIntentEstimatorClassifier(Component):
     """Intent classifier using supervised bert embeddings."""
 
-    provides = ["classifiers", "intent_ranking"]
+    provides = ["intent", "intent_ranking"]
 
     requires = ["text_features"]
 
@@ -131,8 +131,13 @@ class EmbeddingBertIntentEstimatorClassifier(Component):
     def _create_intent_dict(training_data):
         """Create classifiers dictionary"""
 
-        distinct_intents = set([example.get("classifiers")
+        distinct_intents = set([example.get("intent")
                                for example in training_data.intent_examples])
+        # for ss in training_data.intent_examples:
+        #     print(ss.__dict__)
+
+        logger.info('distinct_intents is {}'.format(distinct_intents))
+
         return {intent: idx
                 for idx, intent in enumerate(sorted(distinct_intents))}
 
@@ -180,7 +185,7 @@ class EmbeddingBertIntentEstimatorClassifier(Component):
         X = np.stack([e.get("text_features")
                       for e in training_data.intent_examples])
 
-        intents_for_X = np.array([intent_dict[e.get("classifiers")]
+        intents_for_X = np.array([intent_dict[e.get("intent")]
                                   for e in training_data.intent_examples])
 
         Y = np.stack([self.encoded_all_intents[intent_idx]
@@ -215,6 +220,8 @@ class EmbeddingBertIntentEstimatorClassifier(Component):
 
         intent_dict = self._create_intent_dict(training_data)
 
+        logger.info('intent_dict is {}'.format(intent_dict))
+
         if len(intent_dict) < 2:
             logger.error("Can not train an classifiers classifier. "
                          "Need at least 2 different classes. "
@@ -242,7 +249,7 @@ class EmbeddingBertIntentEstimatorClassifier(Component):
         tf.logging.set_verbosity(tf.logging.INFO)
         config_proto = self.get_config_proto(self.component_config)
 
-        # sparse_softmax_cross_entropy , build linear classified model
+        # 构造Estimator 这里要进行修改
         self.estimator = tf.contrib.estimator.LinearEstimator(
                                                      head = head,
                                                      feature_columns=self.feature_columns,
@@ -399,8 +406,3 @@ class EmbeddingBertIntentEstimatorClassifier(Component):
                            "doesn't exist"
                            "".format(os.path.abspath(model_dir)))
             return EmbeddingBertIntentEstimatorClassifier(component_config=meta)
-
-
-
-
-

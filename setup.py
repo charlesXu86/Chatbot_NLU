@@ -12,31 +12,39 @@
 @Desc    :   setup
 
 '''
-from setuptools import find_packages, setup
+from setuptools import find_packages, setup, convert_path
 import pathlib
+
+def _version():
+    ns = {}
+    with open(convert_path("chatbot_nlu/version.py"), "r") as fh:
+        exec(fh.read(), ns)
+    return ns['__version__']
+
+__version = _version()
 
 # Package meta-data.
 NAME = 'chatbot-nlu'
 DESCRIPTION = 'nlu of classifiers detection、name entity recognition、classification of chinese text'
-URL = 'https://github.com/yongzhuo/nlp_xiaojiang'
+URL = 'https://github.com/charlesXu86/Chatbot_NLU'
 EMAIL = 'charlesxu86@163.com'
 AUTHOR = 'xu'
 LICENSE = 'MIT'
 
 HERE = pathlib.Path(__file__).parent
-README = (HERE / "README.md").read_text()
+with open("README.rst", "r") as fh:
+    long_description = fh.read()
 
 required = [
-            'scikit-learn>=0.19.1',
             'bert-serving-client==1.8.9',
             'bert-serving-server==1.9.2',
             ]
 
 setup(name=NAME,
-        version='1.0.2',
+        version=__version,
         description=DESCRIPTION,
-        long_description=README,
-        long_description_content_type="text/markdown",
+        long_description=long_description,
+        long_description_content_type="text/x-rst",
         author=AUTHOR,
         author_email=EMAIL,
         url=URL,
@@ -52,4 +60,4 @@ setup(name=NAME,
                      'Programming Language :: Python :: 3.8',
                      'Programming Language :: Python :: Implementation :: CPython',
                      'Programming Language :: Python :: Implementation :: PyPy'],)
-print("Welcome to Chatbot NLU")
+print("Welcome to Chatbot_NLU, and Chatbot_NLU version is {}".format(__version))
