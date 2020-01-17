@@ -12,3 +12,5 @@
 @Desc    :
  
 '''
+
+from .version import __version__

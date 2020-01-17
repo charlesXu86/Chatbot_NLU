@@ -4,11 +4,8 @@ from __future__ import print_function
 from __future__ import absolute_import
 
 import logging
-import os
-import re
 from typing import Any, Dict, List, Optional, Text
 
-from chatbot_nlu import utils
 from chatbot_nlu.featurizers import Featurizer
 from chatbot_nlu.training_data import Message
 from chatbot_nlu.components import Component

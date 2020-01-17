@@ -8,7 +8,7 @@ from typing import List
 from typing import Optional
 from typing import Text
 
-import rasa.nlu
+import chatbot_nlu
 from rasa.constants import MINIMUM_COMPATIBLE_VERSION
 from chatbot_nlu import components, utils  # pytype: disable=pyi-error
 from chatbot_nlu.components import Component, ComponentBuilder  # pytype: disable=pyi-error

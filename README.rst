@@ -1,47 +1,64 @@
 一、Chatbot_NLU
 ==========================
 
-    Chatbot_NLU是一个基于RASA的自定义中文语言理解组件
+**Chatbot_NLU** 是一个基于 `RASA <https://rasa.com/docs/rasa/user-guide/installation/>`_ 的自定义中文语言理解组件，他可以替换掉RASA中本身的nlu模块，可以使nlu的准确率有较大提升，目前
+引入了 **bert** ，后续将引入 **xlnet** 。
 
-1、钉钉群：
+同时，`RASA <https://rasa.com/docs/rasa/user-guide/installation/>`_ 的自定义组件可以参考 `Custom NLU Components <https://rasa.com/docs/rasa/api/custom-nlu-components/>`_
 
-2、微信公众号；
+目前 **Chatbot_NLU** 支持的功能有：
 
-3、QQ群；
+    1、bert vector
 
-4、外部平台：如电商平台、网页端等
+    2、bert intent
+
+    3、bert slot
 
 
 二、安装使用
 ============
 
-::
+1、安装
+>>>>>>>>>>>>>>>>>>
+
+.. code:: python
 
     pip install chatbot_nlu
 
+2、使用
+>>>>>>>>>>>>>>>>>>>
 
-三、使用示例
-======================
-
-1、dingtalk
-
-.. code:: python
-
-    import chatbot_help as ch
-    from chatbot_help import DingtalkChatbot
-
-    print(ch.__version__)                # 打印版本信息
-    dtalk = DingtalkChatbot(webhook)     # 你设置群机器人的时候生成的webhook
-
-详情请参考：`Dingtalk_README <https://github.com/charlesXu86/Chatbot_Help/blob/master/Dingtalk_README.rst>`_
-
-2、wetalk
+**Chatbot_NLU** 的使用是在 **config.yml** 文件中修改配置，常见的使用方法请参考：
 
 .. code:: python
 
+    language: "zh"
+
+    pipeline:
+    - name: "JiebaTokenizer"
+    - name: "chatbot_nlu.extractors.crf_entity_extractor.CRFEntityExtractor"
+
+    # ner
+    - name: "chatbot_nlu.extractors.jieba_pseg_extractor.JiebaPsegExtractor"
+      part_of_speech: ["nr"]
+
+    - name: "chatbot_nlu.extractors.bilstm_crf_entity_extractor.BilstmCRFEntityExtractor"
 
 
-四、Update News
+    # Word Embedding
+    - name: "chatbot_nlu.featurizers.bert_vectors_featurizer.BertVectorsFeaturizer"
+      ip: "172.18.103.43"
+      port: 5555
+      port_out: 5556
+      show_server_config: True
+      timeout: 10000
+      check_version: False
+
+
+
+
+
+三、Update News
 ======================
 
     * 2020.1.7  接入钉钉群，支持主动推送消息、outgoing交互
@@ -50,7 +67,7 @@
 
 
 
-五、Resources
+四、Resources
 ======================
 
 .. _`Dingtalk_README`: https://github.com/charlesXu86/Chatbot_Help/blob/master/Dingtalk_README.rst
